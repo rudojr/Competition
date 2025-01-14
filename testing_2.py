@@ -262,6 +262,8 @@ class Student:
 
     def __init__(self, student_id: str):
         self._id = student_id
+        # self.name = name
+        # self.student_type = student_type
         self._results: Dict[str, float] = {}
         self._finish_times: Dict[str, float] = {}
         Student._all_students[student_id] = self
@@ -308,18 +310,26 @@ class Student:
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) == 1:
         print("[Usage:] python my_competition.py <result file> <challenges file>")
         return
-    results_file = sys.argv[1]
-    challenges_file = sys.argv[2]
+    elif len(sys.argv) == 2:
+        results_file = sys.argv[1]
+        challenges_file = None
+    elif len(sys.argv) == 3:
+        results_file = sys.argv[1]
+        challenges_file = sys.argv[2]
+    else:
+        print("[Usage:] python my_competition.py <result file> <challenges file>")
+        return
 
     competition = Competition()
     competition.read_results(results_file)
     competition.display_results()
 
-    Challenge.load_challenges_from_file(challenges_file)
-    Challenge.display_challenge_statistics(competition)
+    if challenges_file:
+        Challenge.load_challenges_from_file(challenges_file)
+        Challenge.display_challenge_statistics(competition)
 
 if __name__ == "__main__":
     main()
