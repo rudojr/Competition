@@ -9,7 +9,7 @@ class Competition:
     def read_results(self, filename: str):
         try:
             with open(filename, 'r') as file:
-                challenge_ids = file.readline().strip().split()[1:]
+                challenge_ids = file.readline().strip().split(', ')[1:]
                 for challenge_id in challenge_ids:
                     Challenge.get_challenge(challenge_id)
 
@@ -34,12 +34,19 @@ class Competition:
 
         for student in self._students:
             result = student.get_result(challenge_id)
-            if result != -1 and result != 444:
+            if result != 444 and result != -1:
                 nfinish += 1
-            elif result != -1:
+            elif result == 444:
                 nongoing += 1
 
         return nfinish, nongoing
+
+    def get_finish_times_for_challenge(self, challenge_id: str) -> list:
+        finish_times = []
+        for student in Student._all_students.values():
+            if student.is_completed(challenge_id):
+                finish_times.append(student._finish_times[challenge_id])
+        return finish_times
 
     def display_results(self):
         if not self._challenges or not self._students:
@@ -73,15 +80,11 @@ class Competition:
         print(line_separator)
         print(f"There are {len(self._students)} students and {len(self._challenges)} challenges")
 
-        for challenge in self._challenges:
-            nfinish, nongoing = self.get_nfinish_and_nongoing_for_challenge(challenge.id)
-            print(f"Challenge {challenge.id} - NFinish: {nfinish} - NOngoing: {nongoing}")
-
         fastest_student = min(self._students,
                               key=lambda s: s.get_average_completion_time())
         avg_time = fastest_student.get_average_completion_time()
         if avg_time != float('inf'):
-            print(f"\nThe top student is {fastest_student.id} with an average time of {avg_time:.2f} minutes.")
+            print(f"The top student is {fastest_student.id} with an average time of {avg_time:.2f} minutes.")
 
 class Challenge:
     _all_challenges: Dict[str, 'Challenge'] = {}
@@ -129,16 +132,6 @@ class Challenge:
 
     def add_result(self, time: float):
         self._results.append(time)
-
-    def get_statistics(self, competition) -> Dict[str, float]:
-        nfinish, nongoing = competition.get_nfinish_and_nongoing_for_challenge(self._id)
-        average_time = 1.0
-
-        return {
-            "Nfinish": nfinish,
-            "Nongoing": nongoing,
-            "AverageTime": average_time
-        }
     @classmethod
     def get_challenge(cls, challenge_id: str) -> 'Challenge':
         if challenge_id not in cls._all_challenges:
@@ -158,16 +151,19 @@ class Challenge:
                     if not line.strip() or line.strip().startswith('#'):
                         continue
                     try:
-                        parts = [part.strip() for part in line.strip().split(',')]
+                        parts = [part.strip() for part in line.strip().split(', ')]
                         if len(parts) < 4:
-                            print(f"Error on line {line_number}: Expected at least 4 values, got {len(parts)}")
+                            print(f"Error on line {line_number}: Expected 4 values, got {len(parts)}")
                             continue
 
                         challenge_id = parts[0]
                         challenge_type = parts[1]
-                        name = ', '.join(parts[2:-1])
-                        weight = parts[-1]
-                        cls._all_challenges[challenge_id] = cls(challenge_id, challenge_type, name, float(weight))
+                        name = parts[2]
+                        weight = float(parts[3])
+
+                        if challenge_id not in cls._all_challenges:
+                            new_challenge = cls(challenge_id, name, challenge_type, weight)
+                            cls._all_challenges[challenge_id] = new_challenge
 
                     except ValueError as e:
                         print(f"Error parsing line {line_number}: {line.strip()}")
@@ -179,6 +175,20 @@ class Challenge:
         except Exception as e:
             print(f"Error reading file: {str(e)}")
             sys.exit(1)
+    def get_statistics(self, competition:Competition) -> Dict[str, float]:
+        challenge_id = self._id
+        nfinish, nongoing = competition.get_nfinish_and_nongoing_for_challenge(challenge_id)
+        finish_times = competition.get_finish_times_for_challenge(challenge_id)
+
+        average_time = 0.0
+        if nfinish > 0:
+            average_time = sum(finish_times) / nfinish
+
+        return {
+            "Nfinish": nfinish,
+            "Nongoing": nongoing,
+            "AverageTime": round(average_time,2)
+        }
 
     @classmethod
     def display_challenge_statistics(cls, competition):
@@ -200,11 +210,21 @@ class Challenge:
         header_row = "| " + " | ".join(f"{header:<{col_widths[i]}}" for i, header in enumerate(headers)) + " |"
         print(header_row)
         print(line_separator)
+
+        max_avg_time = 0
+        max_avg_challenge_id = None
+        max_avg_challenge_name = None
+
         for challenge in challenges:
             stats = challenge.get_statistics(competition)
+            avg_time = stats['AverageTime']
+            if avg_time > max_avg_time:
+                max_avg_time = avg_time
+                max_avg_challenge_id = challenge.id
+                max_avg_challenge_name = challenge.name
             row = [
                 challenge.id,
-                f"{challenge.type}({challenge.name})",
+                f"{challenge.name}({challenge.type})",
                 f"{challenge.weight:.1f}",
                 str(stats["Nfinish"]),
                 str(stats["Nongoing"]),
@@ -214,21 +234,28 @@ class Challenge:
             print(data_row)
         print(line_separator)
 
-        # valid_challenges = [c for c in challenges if c.get_statistics()["AverageTime"] > 0]
-        # if valid_challenges:
-        #     most_difficult = max(valid_challenges, key=lambda c: c.get_statistics()["AverageTime"])
-        #     most_difficult_avg_time = most_difficult.get_statistics()["AverageTime"]
-        #     print(
-        #         f"The most difficult challenge is {most_difficult.name} ({most_difficult.id}) with an average time of {most_difficult_avg_time:.2f} minutes.")
-        # else:
-        #     print("No challenges have been completed yet.")
-        # most_difficult = max(challenges, key=lambda c: c.get_statistics()["AverageTime"])
-        # most_difficult_avg_time = most_difficult.get_statistics()["AverageTime"]
-        #
-        # print(
-        #     f"The most difficult challenge is {most_difficult.name} ({most_difficult.id}) with an average time of {most_difficult_avg_time:.2f} minutes.")
-        # print("Report competition_report.txt generated!")
+        if max_avg_challenge_id:
+            print(f"The most difficult challenge is {max_avg_challenge_name} ({max_avg_challenge_id}) with an average time of {max_avg_time:.2f} minutes")
+        cls.save_competition_report(challenges, competition)
+    @classmethod
+    def save_competition_report(cls, challenges, competition, file_name='competition_report.txt'):
+        with open(file_name, 'w') as file:
+            file.write("ID, Name, Weight, Nfinish, Nongoing, AverageTime\n")
 
+            for challenge in challenges:
+                stats = challenge.get_statistics(competition)
+                avg_time = stats['AverageTime']
+
+                row = [
+                    challenge.id,
+                    f"{challenge.name}({challenge.type})",
+                    f"{challenge.weight:.1f}",
+                    str(stats["Nfinish"]),
+                    str(stats["Nongoing"]),
+                    f"{avg_time:.2f}" if avg_time > 0 else "--"
+                ]
+                file.write(", ".join(row) + "\n")
+        print(f"Report {file_name} generated ")
 
 class Student:
     _all_students: Dict[str, 'Student'] = {}
@@ -236,14 +263,24 @@ class Student:
     def __init__(self, student_id: str):
         self._id = student_id
         self._results: Dict[str, float] = {}
+        self._finish_times: Dict[str, float] = {}
         Student._all_students[student_id] = self
 
     @property
     def id(self) -> str:
         return self._id
 
+    def set_finish_time(self, challenge_id: str, finish_time: float):
+        self._finish_times[challenge_id] = finish_time
+
+    def is_completed(self, challenge_id: str) -> bool:
+        result = self._results.get(challenge_id, -1)
+        return result != -1 and result != 444
+
     def add_result(self, challenge_id: str, time: float):
         self._results[challenge_id] = time
+        if time != 444:
+            self._finish_times[challenge_id] = time
 
     def get_result(self, challenge_id: str) -> Optional[float]:
         return self._results.get(challenge_id)
@@ -278,11 +315,11 @@ def main():
     challenges_file = sys.argv[2]
 
     competition = Competition()
-
     competition.read_results(results_file)
     competition.display_results()
-    # Challenge.load_challenges_from_file(challenges_file)
-    # Challenge.display_challenge_statistics(competition)
+
+    Challenge.load_challenges_from_file(challenges_file)
+    Challenge.display_challenge_statistics(competition)
 
 if __name__ == "__main__":
     main()
