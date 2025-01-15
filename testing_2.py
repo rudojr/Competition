@@ -6,7 +6,8 @@ class Competition:
         self._challenges: List[Challenge] = []
         self._students: List[Student] = []
 
-    def read_results(self, filename: str):
+    def read_results(self, filename: str, student_file:str):
+        Student.load_students_from_file(student_file)
         try:
             with open(filename, 'r') as file:
                 challenge_ids = file.readline().strip().split(', ')[1:]
@@ -14,13 +15,16 @@ class Competition:
                     Challenge.get_challenge(challenge_id)
 
                 for line in file:
-                    parts = line.strip().split()
+                    parts = line.strip().split(',')
                     student_id = parts[0]
                     student = Student.get_student(student_id)
 
-                    for i, time_str in enumerate(parts[1:]):
-                        time = float(time_str.strip(","))
-                        student.add_result(challenge_ids[i], time)
+                    if student is not None:
+                        for i, time_str in enumerate(parts[1:]):
+                            time = float(time_str.strip(","))
+                            student.add_result(challenge_ids[i], time)
+                    else:
+                        print(f"Student with ID {student_id} not found.")
 
                 self._challenges = Challenge.get_all_challenges()
                 self._students = Student.get_all_students()
@@ -47,6 +51,21 @@ class Competition:
             if student.is_completed(challenge_id):
                 finish_times.append(student._finish_times[challenge_id])
         return finish_times
+
+
+    # def get_nfinish_and_nongoing_for_student(self, student_id: str) -> tuple:
+    #     nfinish = 0
+    #     nongoing = 0
+    #
+    #     for student in self._students:
+    #         for challenge in self._challenges:
+    #             result = student.get_result(challenge.id)
+    #             if result != 444 and result != -1:
+    #                 nfinish += 1
+    #             elif result == 444:
+    #                 nongoing += 1
+    #
+    #     return nfinish, nongoing
 
     def display_results(self):
         if not self._challenges or not self._students:
@@ -85,6 +104,7 @@ class Competition:
         avg_time = fastest_student.get_average_completion_time()
         if avg_time != float('inf'):
             print(f"The top student is {fastest_student.id} with an average time of {avg_time:.2f} minutes.")
+
 
 class Challenge:
     _all_challenges: Dict[str, 'Challenge'] = {}
@@ -141,6 +161,14 @@ class Challenge:
     @classmethod
     def get_all_challenges(cls) -> List['Challenge']:
         return list(cls._all_challenges.values())
+
+    def get_result_for_student(self, student_id):
+        result = next((result for result in self._results if result['student_id'] == student_id), None)
+        if result:
+            return result['value']
+        else:
+            return -1
+
 
     @classmethod
     def load_challenges_from_file(cls, filename: str):
@@ -260,10 +288,10 @@ class Challenge:
 class Student:
     _all_students: Dict[str, 'Student'] = {}
 
-    def __init__(self, student_id: str):
+    def __init__(self, student_id: str, name: str, student_type: str):
         self._id = student_id
-        # self.name = name
-        # self.student_type = student_type
+        self.name = name
+        self.student_type = student_type
         self._results: Dict[str, float] = {}
         self._finish_times: Dict[str, float] = {}
         Student._all_students[student_id] = self
@@ -272,6 +300,35 @@ class Student:
     def id(self) -> str:
         return self._id
 
+    @classmethod
+    def load_students_from_file(cls, students_file: str):
+        with open(students_file, mode='r') as file:
+            for line_number, line in enumerate(file, 1):
+                if not line.strip() or line.strip().startswith('#'):
+                    continue
+                try:
+                    parts = [part.strip() for part in line.strip().split(',')]
+                    if len(parts) < 3:
+                        print(f"Error on line {line_number}: Expected at least 3 values, got {len(parts)}")
+                        continue
+
+                    student_id = parts[0].strip()
+                    student_name = parts[1].strip()
+                    student_type = parts[2].strip()
+
+                    if student_id in cls._all_students:
+                        continue
+
+                    if student_type not in ['U', 'P']:
+                        print(f"Error on line {line_number}: Invalid student type '{student_type}'")
+                        continue
+
+                    student = cls(student_id, student_name, student_type)
+
+                except ValueError as e:
+                    print(f"Error parsing line {line_number}: {line.strip()}")
+                    print(f"Error details: {str(e)}")
+                    continue
     def set_finish_time(self, challenge_id: str, finish_time: float):
         self._finish_times[challenge_id] = finish_time
 
@@ -298,18 +355,137 @@ class Student:
             return round(avg_time, 4)
         else:
             return float('inf')
-    @classmethod
-    def get_student(cls, student_id: str) -> 'Student':
-        if student_id not in cls._all_students:
-            cls._all_students[student_id] = Student(student_id)
-        return cls._all_students[student_id]
 
+    def get_nfinish_and_nongoing(self, student_id: str) -> int:
+        if self._id == student_id:
+            nfinish = 0
+            nongoing = 0
+            for result in self._results.values():
+                if result != 444 and result != -1:
+                    nfinish += 1
+                elif result == 444:
+                    nongoing += 1
+            return nfinish, nongoing
+        else:
+            return 0,0
+
+    def get_finished_challenges(self) -> List[str]:
+        finished_challenges = []
+        for challenge_id, time in self._results.items():
+            if time != 444 and time != -1:
+                finished_challenges.append(challenge_id)
+        return finished_challenges
+
+    def count_finished_mandatory(self) -> int:
+        count = 0
+        for challenge_id in self.get_finished_challenges():
+            challenge = Challenge.get_challenge(challenge_id)
+            if challenge and challenge.type == 'M':
+                count += 1
+        return count
+
+
+    def count_finished_special(self) -> int:
+        count = 0
+        for challenge_id in self.get_finished_challenges():
+            challenge = Challenge.get_challenge(challenge_id)
+            if challenge and challenge.type == 'S':
+                count += 1
+        return count
+
+    def meets_requirements(self) -> bool:
+        total_mandatory = sum(1 for challenge in Challenge.get_all_challenges()
+                              if challenge.type == 'M')
+        mandatory_finished = self.count_finished_mandatory()
+        special_finished = self.count_finished_special()
+
+        # total_mandatory = sum(1 for challenge in Challenge._all_challenges.values()
+        #                       if challenge._weight == 1.0)
+
+        if self.student_type == 'U':
+            return mandatory_finished == total_mandatory and special_finished >= 1
+        elif self.student_type == 'P':
+            return mandatory_finished == total_mandatory and special_finished >= 2
+        return False
+
+    @classmethod
+    def get_student(cls, student_id: str):
+        return cls._all_students.get(student_id, None)
     @classmethod
     def get_all_students(cls) -> List['Student']:
         return list(cls._all_students.values())
 
+    @classmethod
+    def save_student_report(cls, students, file_name='student_report.txt'):
+        with open(file_name, 'w') as file:
+            file.write("Student ID, Name, Type, NFinish, NOngoing, Average\n")
+            for student in students:
+                nfinish, nongoing = student.get_nfinish_and_nongoing(student.id)
+                avg_time = student.get_average_completion_time()
+                name_display = f"!{student.name}" if not student.meets_requirements() else student.name
+                row = [
+                    student.id,
+                    name_display,
+                    student.student_type,
+                    str(nfinish),
+                    str(nongoing),
+                    f"{avg_time:.2f}" if avg_time != float('inf') else "--"
+                ]
+                file.write(", ".join(row) + "\n")
+            print(f"Report {file_name} generated")
 
+    @classmethod
+    def display_students(cls):
+        if not cls._all_students:
+            print("No students found.")
+            return
+
+        headers = ["Student ID", "Name", "Type", "NFinish", "NOngoing","Average"]
+        students = sorted(cls._all_students.values(), key=lambda x: x.id)
+
+        col_widths = [max(len(header), max(len(str(getattr(c, attr.lower(), ""))) for c in students)) for header, attr
+                      in zip(headers, headers)]
+
+        line_separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+        print("\nSTUDENT INFORMATION")
+        print(line_separator)
+
+        header_row = "| " + " | ".join(f"{header:<{col_widths[i]}}" for i, header in enumerate(headers)) + " |"
+        print(header_row)
+        print(line_separator)
+
+        min_avg_time = float('inf')
+        min_avg_student_id = None
+        min_avg_student_name = None
+
+        # Data rows
+        for student in students:
+            nfinish, nongoing = student.get_nfinish_and_nongoing(student.id)
+            avg_time = student.get_average_completion_time()
+            if min_avg_time > avg_time:
+                min_avg_time = avg_time
+                min_avg_student_id = student.id
+                min_avg_student_name = student.name
+            name_display = f"!{student.name}" if not student.meets_requirements() else student.name
+            row = [
+                student.id,
+                name_display,
+                student.student_type,
+                nfinish,
+                nongoing,
+                f"{avg_time:.2f}" if avg_time != float('inf') else "--"
+            ]
+            data_row = "| " + " | ".join(f"{str(cell):<{col_widths[i]}}" for i, cell in enumerate(row)) + " |"
+            print(data_row)
+        print(line_separator)
+
+        print(f"The student with the fastest average time is {min_avg_student_id} ({min_avg_student_name}) with an average time of {min_avg_time:.2f} minutes")
+        cls.save_student_report(students)
 def main():
+    students_file = None
+    results_file = None
+    challenges_file = None
+
     if len(sys.argv) == 1:
         print("[Usage:] python my_competition.py <result file> <challenges file>")
         return
@@ -319,17 +495,25 @@ def main():
     elif len(sys.argv) == 3:
         results_file = sys.argv[1]
         challenges_file = sys.argv[2]
+    elif len(sys.argv) == 4:
+        results_file = sys.argv[1]
+        challenges_file = sys.argv[2]
+        students_file = sys.argv[3]
     else:
-        print("[Usage:] python my_competition.py <result file> <challenges file>")
+        print("[Usage:] python my_competition.py <result file> <challenges file> <student file>")
         return
 
     competition = Competition()
-    competition.read_results(results_file)
+    competition.read_results(results_file, students_file)
     competition.display_results()
 
     if challenges_file:
         Challenge.load_challenges_from_file(challenges_file)
         Challenge.display_challenge_statistics(competition)
+
+    if students_file:
+        Student.load_students_from_file(students_file)
+        Student.display_students()
 
 if __name__ == "__main__":
     main()
