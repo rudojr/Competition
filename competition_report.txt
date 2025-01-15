@@ -1,0 +1,6 @@
+ID, Name, Weight, Nfinish, Nongoing, AverageTime
+C03, Search(M), 1.0, 6, 0, 11.23
+C04, Sort(M), 1.0, 4, 1, 6.47
+C09, Compression(S), 1.5, 6, 0, 18.80
+C12, Vote(S), 2.0, 2, 1, 22.70
+C15, Select(S), 1.2, 1, 2, 10.40

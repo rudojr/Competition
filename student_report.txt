@@ -1,0 +1,7 @@
+Student ID, Name, Type, NFinish, NOngoing, Average
+S001, John, U, 3, 1, 12.30
+S012, !Harry, P, 3, 1, 13.70
+S052, !Mary, P, 3, 1, 12.57
+S098, !Scott, P, 3, 1, 19.53
+S125, Tim, U, 3, 0, 11.27
+S246, Louise, U, 4, 0, 13.45
